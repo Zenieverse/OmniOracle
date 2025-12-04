@@ -8,6 +8,9 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/drive/1mWbEJh34Be9n5TQ_iOsXDfLskDEso_ZM
 
+or https://poe.com/OmniOracle
+
+Demo Video: https://app.heygen.com/videos/8e5c668721e044cc8243d93596169fc8 
 ## Run Locally
 
 **Prerequisites:**  Node.js
