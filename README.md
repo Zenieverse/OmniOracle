@@ -10,6 +10,8 @@ View your app in AI Studio: https://ai.studio/apps/drive/1mWbEJh34Be9n5TQ_iOsXDf
 
 or https://poe.com/OmniOracle
 
+https://omni-oracle-synth.lovable.app
+
 Demo Video: https://app.heygen.com/videos/8e5c668721e044cc8243d93596169fc8 
 ## Run Locally
 
