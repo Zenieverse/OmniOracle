@@ -1,5 +1,5 @@
 {
   "name": "OmniOracle",
-  "description": "A decentralized prediction market powered by AI and real-world oracles. Create markets, trade on outcomes, and leverage AI for probability analysis.",
+  "description": "A decentralized prediction market application built for the Canton Network using Daml. Features AI-assisted market creation and atomic settlement across participants.",
   "requestFramePermissions": []
 }

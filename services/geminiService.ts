@@ -4,11 +4,9 @@ import { Market, MarketStatus, OracleStatus } from "../types";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const MARKET_CREATOR_INSTRUCTION = `
-You are an expert Prediction Market Architect for OmniOracle. 
-Convert user prompts into precise market specifications.
+You are an expert Prediction Market Architect for the Canton Network. 
+Convert user prompts into precise market specifications (Daml Template arguments).
 Ensure resolution criteria is unambiguous.
-Suggest real-world oracle sources.
-Estimate initial probability (0-1).
 `;
 
 export const generateMarketFromPrompt = async (prompt: string): Promise<Partial<Market>> => {
@@ -30,7 +28,6 @@ export const generateMarketFromPrompt = async (prompt: string): Promise<Partial<
             resolutionCriteria: { type: Type.STRING },
             oracleName: { type: Type.STRING },
             oracleUrl: { type: Type.STRING },
-            tags: { type: Type.ARRAY, items: { type: Type.STRING } }
           },
           required: ["title", "description", "category", "endDate", "initialProbability", "resolutionCriteria", "oracleName"]
         }
@@ -59,7 +56,6 @@ export const generateMarketFromPrompt = async (prompt: string): Promise<Partial<
           url: data.oracleUrl,
           status: OracleStatus.PENDING
         },
-        backupSources: [],
         resolutionCriteria: data.resolutionCriteria,
         disputeWindowHours: 24
       }
@@ -80,7 +76,15 @@ export const analyzeMarket = async (market: Market): Promise<{text: string, sent
       
       Return JSON with 'text' (30 words max insight) and 'sentiment' (BULLISH/BEARISH/NEUTRAL).`,
       config: {
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            text: { type: Type.STRING },
+            sentiment: { type: Type.STRING, enum: ["BULLISH", "BEARISH", "NEUTRAL"] }
+          },
+          required: ["text", "sentiment"]
+        }
       }
     });
     return JSON.parse(response.text || `{"text": "Analysis unavailable.", "sentiment": "NEUTRAL"}`);

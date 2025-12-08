@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { generateMarketFromPrompt } from '../services/geminiService';
-import { Market } from '../types';
-import { Sparkles, Loader2, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Market, MarketStatus, OracleStatus } from '../types';
+import { Sparkles, Loader2, CheckCircle, AlertTriangle, ArrowRight, FileCode } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../context/StoreContext';
 
@@ -10,7 +10,7 @@ interface CreateMarketProps {
 }
 
 const CreateMarket: React.FC<CreateMarketProps> = () => {
-  const { addMarket, user } = useStore();
+  const { createMarketContract, user } = useStore();
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [generatedData, setGeneratedData] = useState<Partial<Market> | null>(null);
@@ -29,20 +29,36 @@ const CreateMarket: React.FC<CreateMarketProps> = () => {
     }
   };
 
-  const handleSubmit = () => {
-    if (generatedData) {
+  const handleSubmit = async () => {
+    if (generatedData && user.party) {
       const newMarket: Market = {
         ...generatedData as Market,
-        id: Math.random().toString(36).substr(2, 9),
-        creatorId: user.id,
-        resolutionHistory: [],
+        operator: user.party,
         volume: 0,
-        poolBalance: { YES: 1000 * (generatedData.probabilities?.[0] || 0.5), NO: 1000 * (1 - (generatedData.probabilities?.[0] || 0.5)) }
+        poolBalance: { YES: 1000 * (generatedData.probabilities?.[0] || 0.5), NO: 1000 * (1 - (generatedData.probabilities?.[0] || 0.5)) },
+        oracleConfig: generatedData.oracleConfig || {
+            primarySource: { id: 'o1', name: 'Unknown', type: 'API', status: OracleStatus.PENDING },
+            resolutionCriteria: 'Manual',
+            disputeWindowHours: 24
+        }
       };
-      addMarket(newMarket);
+      await createMarketContract(newMarket);
       navigate('/');
     }
   };
+
+  if (!user.isConnected) {
+      return (
+          <div className="max-w-xl mx-auto pt-20 text-center">
+              <div className="bg-slate-900 border border-slate-800 p-10 rounded-3xl">
+                  <AlertTriangle size={48} className="mx-auto text-amber-500 mb-4" />
+                  <h2 className="text-2xl font-bold text-white mb-2">Participant Not Connected</h2>
+                  <p className="text-slate-400 mb-6">You must connect to a Canton Participant Node to submit contract creation commands.</p>
+                  <p className="text-xs text-slate-500">Go to the sidebar and click "Connect Participant".</p>
+              </div>
+          </div>
+      )
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-8 pb-10">
@@ -50,9 +66,9 @@ const CreateMarket: React.FC<CreateMarketProps> = () => {
         <div className="inline-flex items-center justify-center p-4 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 rounded-2xl mb-2 border border-cyan-500/20">
             <Sparkles className="text-cyan-400" size={32} />
         </div>
-        <h1 className="text-4xl font-black text-white tracking-tight">AI Market Architect</h1>
+        <h1 className="text-4xl font-black text-white tracking-tight">AI Contract Factory</h1>
         <p className="text-slate-400 max-w-xl mx-auto text-lg">
-            Describe the event you want to predict. Our Gemini AI agent will structure the market, find oracle sources, and set resolution criteria for you.
+            Define your prediction market parameters. We'll generate the Daml Template payload and submit the creation command to the ledger.
         </p>
       </div>
 
@@ -61,7 +77,7 @@ const CreateMarket: React.FC<CreateMarketProps> = () => {
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-bold text-slate-300 mb-2 ml-1">
-                What do you want to predict?
+                Market Proposition
               </label>
               <textarea
                 value={prompt}
@@ -78,11 +94,11 @@ const CreateMarket: React.FC<CreateMarketProps> = () => {
             >
               {isLoading ? (
                 <>
-                  <Loader2 className="animate-spin" /> Analyzing Real-World Data...
+                  <Loader2 className="animate-spin" /> Structuring Daml Payload...
                 </>
               ) : (
                 <>
-                  <Sparkles size={20} /> Generate Market Structure
+                  <Sparkles size={20} /> Generate Contract Payload
                 </>
               )}
             </button>
@@ -90,7 +106,7 @@ const CreateMarket: React.FC<CreateMarketProps> = () => {
         ) : (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                <h2 className="text-xl font-bold text-white">Review Generated Market</h2>
+                <h2 className="text-xl font-bold text-white">Review Contract Payload</h2>
                 <button 
                     onClick={() => setGeneratedData(null)}
                     className="text-sm text-slate-400 hover:text-white"
@@ -125,16 +141,6 @@ const CreateMarket: React.FC<CreateMarketProps> = () => {
                     </p>
                 </div>
 
-                <div className="bg-slate-950/50 p-5 rounded-xl border border-slate-800">
-                    <label className="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2 block flex items-center gap-2">
-                        <Loader2 size={14} /> Oracle Configuration
-                    </label>
-                    <div className="flex items-center justify-between">
-                        <span className="text-sm text-slate-300">Primary Source: <strong className="text-white">{generatedData.oracleConfig?.primarySource.name}</strong></span>
-                        <span className="text-xs text-slate-500 truncate max-w-[200px]">{generatedData.oracleConfig?.primarySource.url}</span>
-                    </div>
-                </div>
-                
                  <div>
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Description</label>
                     <p className="text-sm text-slate-400 mt-1">{generatedData.description}</p>
@@ -145,7 +151,7 @@ const CreateMarket: React.FC<CreateMarketProps> = () => {
               onClick={handleSubmit}
               className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 text-lg"
             >
-               Deploy Market <ArrowRight size={20} />
+               <FileCode size={20} /> Submit Create Command
             </button>
           </div>
         )}
@@ -154,7 +160,7 @@ const CreateMarket: React.FC<CreateMarketProps> = () => {
       <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl text-amber-200/70 text-sm">
         <AlertTriangle className="shrink-0 mt-0.5 text-amber-500" size={16} />
         <p>
-            You are staking <strong>$1,000 USDC</strong> as initial liquidity. This amount is locked until market resolution. Ensure the resolution criteria is unambiguous to avoid disputes.
+            You are signing as <strong>{user.party}</strong>. Submitting this command will instantiate a new Market contract on the Global Synchronizer.
         </p>
       </div>
     </div>

@@ -1,84 +1,90 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Market, UserProfile, Notification, MarketStatus, Trade, OracleStatus } from '../types';
+import { Market, UserProfile, Notification, MarketStatus, Trade, OracleStatus, Template, Party } from '../types';
+import { cantonApi } from '../services/cantonService';
 
 interface StoreContextType {
-  markets: Market[];
+  markets: Template<Market>[];
+  trades: Template<Trade>[];
   user: UserProfile;
   notifications: Notification[];
-  addMarket: (market: Market) => void;
-  executeTrade: (marketId: string, outcome: 'YES' | 'NO', amount: number) => void;
-  connectWallet: () => void;
-  resolveMarket: (marketId: string, outcome: string) => void;
-  updateMarketStatus: (marketId: string, status: MarketStatus) => void;
+  isLedgerReady: boolean;
+  createMarketContract: (marketPayload: Market) => Promise<void>;
+  exerciseTradeChoice: (marketCid: string, outcome: 'YES' | 'NO', amount: number) => Promise<void>;
+  connectToParticipant: () => void;
+  exerciseResolveChoice: (marketCid: string, outcome: string) => void;
+  updateOracleData: (marketCid: string, source: any) => void;
   markNotificationRead: (id: string) => void;
+  resetDemo: () => void;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-const INITIAL_USER: UserProfile = {
-  id: 'u1',
-  username: 'CryptoOracle',
-  isConnected: false,
-  balance: 2500.00,
-  reputation: 100,
-  badges: ['Early Adopter'],
-  portfolioValue: 0,
-  trades: []
-};
-
-// Seed data
-const INITIAL_MARKETS: Market[] = [
-  {
-    id: 'm1',
-    title: 'Will Bitcoin price exceed $100,000 by end of 2025?',
-    description: 'Resolves YES if BTC/USD > 100k on Coingecko.',
-    category: 'Crypto',
-    endDate: '2025-12-31T23:59:59Z',
-    status: MarketStatus.ACTIVE,
-    outcomes: ['YES', 'NO'],
-    probabilities: [0.65, 0.35],
-    volume: 12500,
-    liquidity: 5000,
-    poolBalance: { YES: 3250, NO: 1750 },
-    oracleConfig: {
-      primarySource: { id: 'o1', name: 'CoinGecko API', type: 'API', url: 'https://api.coingecko.com', status: OracleStatus.VERIFIED },
-      backupSources: [],
-      resolutionCriteria: 'Closing price UTC',
-      disputeWindowHours: 24
-    },
-    resolutionHistory: [],
-    creatorId: 'system'
-  },
-  {
-    id: 'm2',
-    title: 'Will SpaceX Starship reach orbit in Q2 2024?',
-    description: 'Resolves YES if Starship completes one full orbit.',
-    category: 'Tech',
-    endDate: '2024-06-30T23:59:59Z',
-    status: MarketStatus.DISPUTE_WINDOW,
-    outcomes: ['YES', 'NO'],
-    probabilities: [0.85, 0.15],
-    volume: 50000,
-    liquidity: 10000,
-    poolBalance: { YES: 8500, NO: 1500 },
-    oracleConfig: {
-      primarySource: { id: 'o2', name: 'SpaceX Official', type: 'API', status: OracleStatus.VERIFIED, reportedValue: 'YES' },
-      backupSources: [],
-      resolutionCriteria: 'Official press release',
-      disputeWindowHours: 24
-    },
-    resolutionHistory: [
-        { step: 'LOCK', timestamp: Date.now() - 100000, details: 'Market closed' },
-        { step: 'ORACLE_FETCH', timestamp: Date.now() - 50000, details: 'Oracle returned YES' }
-    ],
-    creatorId: 'system'
-  }
-];
+const INITIAL_USER_PARTY = 'user::12345';
+const OPERATOR_PARTY = 'operator::primary';
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [markets, setMarkets] = useState<Market[]>(INITIAL_MARKETS);
-  const [user, setUser] = useState<UserProfile>(INITIAL_USER);
+  const [markets, setMarkets] = useState<Template<Market>[]>([]);
+  const [trades, setTrades] = useState<Template<Trade>[]>([]);
+  const [user, setUser] = useState<UserProfile>({
+    party: '',
+    username: 'Guest',
+    isConnected: false,
+    balance: 0,
+    reputation: 0,
+    portfolioValue: 0,
+    contractIds: {}
+  });
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isLedgerReady, setIsLedgerReady] = useState(false);
+
+  // Restore session on load
+  useEffect(() => {
+    const storedUser = localStorage.getItem('canton_user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  }, []);
+
+  // Poll the "Ledger" for updates (Simulating PQS updates)
+  useEffect(() => {
+      const pollLedger = async () => {
+          const activeMarkets = await cantonApi.query<Market>('Market');
+          const activeTrades = await cantonApi.query<Trade>('Trade');
+          
+          if (activeMarkets.length === 0 && !localStorage.getItem('canton_init')) {
+             seedLedger();
+          } else {
+             setMarkets(activeMarkets);
+          }
+          
+          setTrades(activeTrades);
+          setIsLedgerReady(true);
+      };
+
+      const interval = setInterval(pollLedger, 2000); // Polling PQS
+      pollLedger();
+      return () => clearInterval(interval);
+  }, []);
+
+  // Recalculate Portfolio Value based on trades and current market probabilities
+  useEffect(() => {
+    if (!user.isConnected) return;
+    
+    let totalValue = 0;
+    const userTrades = trades.filter(t => t.payload.buyer === user.party);
+    
+    userTrades.forEach(t => {
+      const market = markets.find(m => m.contractId === t.payload.marketId);
+      if (market && market.payload.status !== MarketStatus.RESOLVED) {
+        // Current value = shares * current probability
+        const currentProb = t.payload.outcome === 'YES' ? market.payload.probabilities[0] : market.payload.probabilities[1];
+        totalValue += t.payload.shares * currentProb;
+      }
+    });
+
+    setUser(prev => ({ ...prev, portfolioValue: totalValue }));
+  }, [trades, markets, user.party, user.isConnected]);
+
 
   const addNotification = (title: string, message: string, type: Notification['type']) => {
     setNotifications(prev => [{
@@ -91,110 +97,153 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, ...prev]);
   };
 
-  const connectWallet = () => {
-    setUser(prev => ({
-      ...prev,
+  const seedLedger = async () => {
+      localStorage.setItem('canton_init', 'true');
+      const m1: Market = {
+        operator: OPERATOR_PARTY,
+        title: 'Will Bitcoin price exceed $100,000 by end of 2025?',
+        description: 'Resolves YES if BTC/USD > 100k on Coingecko.',
+        category: 'Crypto',
+        endDate: '2025-12-31',
+        status: MarketStatus.ACTIVE,
+        outcomes: ['YES', 'NO'],
+        probabilities: [0.65, 0.35],
+        volume: 12500,
+        liquidity: 5000,
+        poolBalance: { YES: 3250, NO: 1750 },
+        oracleConfig: {
+            primarySource: { id: 'o1', name: 'CoinGecko API', type: 'API', url: 'https://api.coingecko.com', status: OracleStatus.VERIFIED },
+            resolutionCriteria: 'Closing price UTC',
+            disputeWindowHours: 24
+        }
+      };
+      await cantonApi.create('Market', m1, [OPERATOR_PARTY]);
+  };
+
+  const connectToParticipant = () => {
+    const newUser = {
+      party: INITIAL_USER_PARTY,
+      username: 'Trader_Alice',
       isConnected: true,
-      walletAddress: '0x71C...9A23'
-    }));
-    addNotification('Wallet Connected', 'Successfully connected to Ethereum Mainnet', 'SUCCESS');
+      balance: 5000.00,
+      reputation: 100,
+      portfolioValue: 0,
+      contractIds: {}
+    };
+    setUser(newUser);
+    localStorage.setItem('canton_user', JSON.stringify(newUser));
+    addNotification('Canton Participant Connected', `Allocated Party ID: ${INITIAL_USER_PARTY}`, 'SUCCESS');
   };
 
-  const addMarket = (market: Market) => {
-    setMarkets(prev => [market, ...prev]);
-    addNotification('Market Created', `"${market.title}" is now active`, 'SUCCESS');
+  const createMarketContract = async (marketPayload: Market) => {
+    marketPayload.operator = user.party || OPERATOR_PARTY;
+    await cantonApi.create('Market', marketPayload, [marketPayload.operator]);
+    addNotification('Command Submitted', 'Create Market contract submitted to Global Synchronizer', 'INFO');
   };
 
-  const executeTrade = (marketId: string, outcome: 'YES' | 'NO', amount: number) => {
+  const exerciseTradeChoice = async (marketCid: string, outcome: 'YES' | 'NO', amount: number) => {
     if (user.balance < amount) {
-      addNotification('Trade Failed', 'Insufficient funds', 'ERROR');
+      addNotification('Error', 'Insufficient funds in Asset Holding contract', 'ERROR');
       return;
     }
 
-    setMarkets(prev => prev.map(m => {
-      if (m.id !== marketId) return m;
+    const market = markets.find(m => m.contractId === marketCid);
+    if (!market) return;
 
-      // AMM Logic: CPMM (Constant Product Market Maker) simplified
-      // k = yes_balance * no_balance
-      // buying YES increases yes_balance (user puts money in), reduces no_balance (conceptually)
-      // Actually, standard CPMM for prediction markets:
-      // You buy shares. Price = pool[outcome] / (pool[YES] + pool[NO])
-      
-      // Simplified simulation for this UI:
-      const totalPool = m.poolBalance.YES + m.poolBalance.NO;
-      const shares = amount / m.probabilities[outcome === 'YES' ? 0 : 1];
-      
-      // Price Impact
-      const impact = (amount / m.liquidity) * 0.2; 
-      let newYesProb = m.probabilities[0];
-      
-      if (outcome === 'YES') {
-        newYesProb = Math.min(0.99, newYesProb + impact);
-      } else {
-        newYesProb = Math.max(0.01, newYesProb - impact);
-      }
+    // Calculate execution price and shares (AMM simulation)
+    const price = outcome === 'YES' ? market.payload.probabilities[0] : market.payload.probabilities[1];
+    const shares = amount / price;
 
-      return {
-        ...m,
-        volume: m.volume + amount,
-        probabilities: [newYesProb, 1 - newYesProb],
-        poolBalance: {
-           YES: outcome === 'YES' ? m.poolBalance.YES + amount : m.poolBalance.YES,
-           NO: outcome === 'NO' ? m.poolBalance.NO + amount : m.poolBalance.NO
-        }
-      };
-    }));
-
-    setUser(prev => ({
-      ...prev,
-      balance: prev.balance - amount,
-      portfolioValue: prev.portfolioValue + amount,
-      trades: [{
-        id: Math.random().toString(36),
-        marketId,
+    // 1. Create Trade Contract (Representing ownership)
+    const tradePayload: Trade = {
+        marketId: marketCid,
+        buyer: user.party,
         outcome,
         amount,
-        shares: amount, // simplified
-        price: 1, // simplified
-        timestamp: Date.now(),
-        type: 'BUY',
-        userId: prev.id
-      }, ...prev.trades]
+        shares,
+        price,
+        timestamp: new Date().toISOString(),
+        type: 'BUY'
+    };
+    await cantonApi.create('Trade', tradePayload, [user.party]);
+
+    // 2. Submit Choice to Market (AMM state update)
+    await cantonApi.exercise(marketCid, 'Trade', { outcome, amount, buyer: user.party });
+    
+    // 3. Local State Update (Optimistic)
+    const newUserState = {
+        ...user,
+        balance: user.balance - amount
+    };
+    setUser(newUserState);
+    localStorage.setItem('canton_user', JSON.stringify(newUserState));
+
+    // Update local market state to reflect AMM shift (Simulation)
+    setMarkets(prev => prev.map(m => {
+        if (m.contractId !== marketCid) return m;
+        
+        const impact = (amount / m.payload.liquidity) * 0.2;
+        let newYesProb = m.payload.probabilities[0];
+        if (outcome === 'YES') newYesProb = Math.min(0.99, newYesProb + impact);
+        else newYesProb = Math.max(0.01, newYesProb - impact);
+
+        const newPayload = {
+            ...m.payload,
+            volume: m.payload.volume + amount,
+            probabilities: [newYesProb, 1 - newYesProb]
+        };
+        
+        // Persist to mock ledger
+        const all = JSON.parse(localStorage.getItem('canton_acs_Market') || '[]');
+        const updated = all.map((x: any) => x.contractId === marketCid ? { ...x, payload: newPayload } : x);
+        localStorage.setItem('canton_acs_Market', JSON.stringify(updated));
+
+        return { ...m, payload: newPayload };
     }));
 
-    addNotification('Trade Executed', `Bought $${amount} of ${outcome}`, 'SUCCESS');
+    addNotification('Trade Choice Exercised', `Swap request submitted for ${outcome}`, 'SUCCESS');
   };
 
-  const updateMarketStatus = (marketId: string, status: MarketStatus) => {
-    setMarkets(prev => prev.map(m => {
-      if (m.id !== marketId) return m;
-      return { 
-        ...m, 
-        status,
-        resolutionHistory: [...m.resolutionHistory, {
-            step: `STATUS_CHANGE`,
-            timestamp: Date.now(),
-            details: `Status changed to ${status}`
-        }]
-      };
-    }));
+  const exerciseResolveChoice = async (marketCid: string, outcome: string) => {
+      await cantonApi.exercise(marketCid, 'Resolve', { outcome });
+      
+      setMarkets(prev => prev.map(m => {
+          if (m.contractId !== marketCid) return m;
+          const newPayload = { ...m.payload, status: MarketStatus.RESOLVED, resolutionValue: outcome };
+          
+          // Persist
+          const all = JSON.parse(localStorage.getItem('canton_acs_Market') || '[]');
+          const updated = all.map((x: any) => x.contractId === marketCid ? { ...x, payload: newPayload } : x);
+          localStorage.setItem('canton_acs_Market', JSON.stringify(updated));
+
+          return { ...m, payload: newPayload };
+      }));
+      
+      addNotification('Market Settled', `Resolution finalized on ledger. Outcome: ${outcome}`, 'SUCCESS');
   };
 
-  const resolveMarket = (marketId: string, outcome: string) => {
-    setMarkets(prev => prev.map(m => {
-      if (m.id !== marketId) return m;
-      return {
-        ...m,
-        status: MarketStatus.RESOLVED,
-        resolutionValue: outcome,
-        resolutionHistory: [...m.resolutionHistory, {
-            step: 'RESOLVED',
-            timestamp: Date.now(),
-            details: `Market resolved to ${outcome}`
-        }]
-      };
-    }));
-    addNotification('Market Resolved', `Market resolved to ${outcome}`, 'INFO');
+  const updateOracleData = (marketCid: string, source: any) => {
+      setMarkets(prev => prev.map(m => {
+          if (m.contractId !== marketCid) return m;
+           const newPayload = { 
+               ...m.payload, 
+               oracleConfig: { ...m.payload.oracleConfig, primarySource: source },
+               status: source.status === OracleStatus.VERIFIED ? MarketStatus.DISPUTE_WINDOW : m.payload.status
+           };
+           // Persist
+           const all = JSON.parse(localStorage.getItem('canton_acs_Market') || '[]');
+           const updated = all.map((x: any) => x.contractId === marketCid ? { ...x, payload: newPayload } : x);
+           localStorage.setItem('canton_acs_Market', JSON.stringify(updated));
+           return { ...m, payload: newPayload };
+      }));
+  };
+
+  const resetDemo = () => {
+    localStorage.removeItem('canton_acs_Market');
+    localStorage.removeItem('canton_acs_Trade');
+    localStorage.removeItem('canton_init');
+    localStorage.removeItem('canton_user');
+    window.location.reload();
   };
 
   const markNotificationRead = (id: string) => {
@@ -204,14 +253,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <StoreContext.Provider value={{
       markets,
+      trades,
       user,
       notifications,
-      addMarket,
-      executeTrade,
-      connectWallet,
-      resolveMarket,
-      updateMarketStatus,
-      markNotificationRead
+      isLedgerReady,
+      createMarketContract,
+      exerciseTradeChoice,
+      connectToParticipant,
+      exerciseResolveChoice,
+      updateOracleData,
+      markNotificationRead,
+      resetDemo
     }}>
       {children}
     </StoreContext.Provider>

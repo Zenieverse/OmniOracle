@@ -1,22 +1,29 @@
 export enum MarketStatus {
-  ACTIVE = 'ACTIVE',
-  LOCKED = 'LOCKED', // Trading stopped, waiting for oracle
-  FETCHING_ORACLES = 'FETCHING_ORACLES',
-  DISPUTE_WINDOW = 'DISPUTE_WINDOW',
-  RESOLVED = 'RESOLVED',
-  CANCELLED = 'CANCELLED'
+  ACTIVE = 'Active',
+  LOCKED = 'Locked',
+  FETCHING_ORACLES = 'FetchingOracles',
+  DISPUTE_WINDOW = 'DisputeWindow',
+  RESOLVED = 'Resolved',
+  CANCELLED = 'Cancelled'
 }
 
-export enum OutcomeType {
-  BINARY = 'BINARY', // YES/NO
-  MULTIPLE = 'MULTIPLE',
+// Daml specific types
+export type Party = string;
+export type ContractId<T> = string;
+export type ISO8601Date = string;
+
+export interface Template<T> {
+  contractId: ContractId<T>;
+  payload: T;
+  signatories: Party[];
+  observers: Party[];
 }
 
 export enum OracleStatus {
-  PENDING = 'PENDING',
-  VERIFIED = 'VERIFIED',
-  CONFLICT = 'CONFLICT',
-  REJECTED = 'REJECTED'
+  PENDING = 'Pending',
+  VERIFIED = 'Verified',
+  CONFLICT = 'Conflict',
+  REJECTED = 'Rejected'
 }
 
 export interface OracleSource {
@@ -29,56 +36,49 @@ export interface OracleSource {
   timestamp?: number;
 }
 
+// Corresponds to 'template Market' in Daml
 export interface Market {
-  id: string;
+  operator: Party;
   title: string;
   description: string;
   category: string;
-  imageUrl?: string;
-  endDate: string; // ISO Date
+  endDate: ISO8601Date;
   status: MarketStatus;
   outcomes: string[];
   probabilities: number[];
   volume: number;
   liquidity: number;
-  poolBalance: { YES: number; NO: number }; // For AMM k=x*y
+  poolBalance: { YES: number; NO: number };
   oracleConfig: {
     primarySource: OracleSource;
-    backupSources: OracleSource[];
     resolutionCriteria: string;
     disputeWindowHours: number;
   };
   resolutionValue?: string;
-  resolutionHistory: {
-    step: string;
-    timestamp: number;
-    details: string;
-  }[];
-  creatorId: string;
 }
 
+// Corresponds to 'template Trade' in Daml
 export interface Trade {
-  id: string;
-  marketId: string;
-  outcome: string; // 'YES' | 'NO'
-  amount: number; // USDC amount
-  shares: number; // Number of shares bought
-  price: number; // Avg price per share
-  timestamp: number;
+  marketId: ContractId<Market>;
+  buyer: Party;
+  outcome: string;
+  amount: number;
+  shares: number;
+  price: number;
+  timestamp: string;
   type: 'BUY' | 'SELL';
-  userId: string;
 }
 
 export interface UserProfile {
-  id: string;
+  party: Party;
   username: string;
-  walletAddress?: string;
   isConnected: boolean;
-  balance: number;
-  reputation: number; // 0-1000
-  badges: string[];
+  balance: number; // In a real app, this would be holdings of an Asset contract
+  reputation: number;
   portfolioValue: number;
-  trades: Trade[];
+  contractIds: {
+    userContract?: ContractId<any>;
+  };
 }
 
 export interface Notification {

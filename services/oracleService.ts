@@ -5,15 +5,16 @@ export const fetchOracleData = async (source: OracleSource): Promise<OracleSourc
   return new Promise((resolve) => {
     setTimeout(() => {
       // Simulate real-world randomness and occasional failures/conflicts
-      const isSuccess = Math.random() > 0.1; 
+      // For demo purposes, we heavily bias towards success and matching the generated market prompt
+      const isSuccess = Math.random() > 0.05; 
       
       resolve({
         ...source,
         status: isSuccess ? OracleStatus.VERIFIED : OracleStatus.CONFLICT,
-        reportedValue: isSuccess ? (Math.random() > 0.5 ? 'YES' : 'NO') : undefined,
+        reportedValue: isSuccess ? (Math.random() > 0.3 ? 'YES' : 'NO') : undefined, // Bias towards YES for optimistic demo
         timestamp: Date.now()
       });
-    }, 2000 + Math.random() * 1000); // Random latency
+    }, 1500); // 1.5s latency to match UI animation
   });
 };
 
